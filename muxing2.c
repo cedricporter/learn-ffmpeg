@@ -1,15 +1,3 @@
-/**
- * @file   muxing2.c
- * @author Hua Liang[Stupid ET]
- *
- * @brief
- *
- *
- */
-
-/*#include "muxing2.h"*/
-
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
