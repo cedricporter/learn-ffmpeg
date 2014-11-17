@@ -24,6 +24,8 @@ extern "C" {
 #define STREAM_PIX_FMT    AV_PIX_FMT_YUV420P /* default pix_fmt */
 
 
+uint8_t g_pixels[4 * 800 * 600] = {0};
+
 class VideoEncoder
 {
 public:
@@ -222,7 +224,7 @@ private:
     }
 
     
-/* Prepare a dummy image. */
+    /* Prepare a dummy image. */
     void fill_yuv_image(AVPicture *pict, int frame_index,
         int width, int height)
     {
@@ -230,27 +232,71 @@ private:
 
         i = frame_index;
 
-        if (i > 20) {
-            /* Y */
-            for (y = 0; y < height; y++)
-                for (x = 0; x < width; x++)
-                    pict->data[0][y * pict->linesize[0] + x] = x + y + i * 3;
+        int sum = 0;
+        for (y = 0; y < height; y++) {
+            for (x = 0; x < width; x++) {
+                int idx = y * width * 4 + x * 4;
+                g_pixels[idx + 0] = 255;
 
-            /* Cb and Cr */
-            for (y = 0; y < height / 2; y++) {
-                for (x = 0; x < width / 2; x++) {
-                    pict->data[1][y * pict->linesize[1] + x] = 128 + y + i * 2;
-                    pict->data[2][y * pict->linesize[2] + x] = 64 + x + i * 5;
-                }
-            }
-        } else {
-            for (y = 0; y < height; y++) {
-                for (x = 0; x < width; x++)
-                {
-                    pict->data[0][y * pict->linesize[0] + x] = x + y + i * 3;
+                for (int z = 0; z < 4; z++) {
+                    // g_pixels[idx + z] = i % 255;
                 }
             }
         }
+
+        ret = avpicture_fill(&rgb_picture, g_pixels, AV_PIX_FMT_RGBA, width, height);
+        if (ret < 0) {
+            printf("avpicture_fill failed\n");
+            exit(1);
+        }
+
+        struct SwsContext* fooContext = sws_getContext(
+            width, height, AV_PIX_FMT_RGBA, width, height,
+            AV_PIX_FMT_YUV420P, SWS_FAST_BILINEAR, NULL, NULL, NULL);
+        if(!fooContext){
+            // av_strerror(ret, buf, sizeof(buf));
+            printf("sws_getContext failed\n");
+            exit(1);
+        }
+        ret = sws_scale(
+            fooContext, rgb_picture.data, rgb_picture.linesize, 0, height,
+            dst_picture.data, dst_picture.linesize);          // converting frame size and format
+        if(ret < 0){
+            // av_strerror(ret, buf, sizeof(buf));
+            printf("sws_scale failed\n");
+            exit(1);
+        }
+ 
+        // if (i > 20) {
+        //     /* Y */
+        //     for (y = 0; y < height; y++)
+        //         for (x = 0; x < width; x++)
+        //             pict->data[0][y * pict->linesize[0] + x] = x + y + i * 3;
+
+        //     /* Cb and Cr */
+        //     for (y = 0; y < height / 2; y++) {
+        //         for (x = 0; x < width / 2; x++) {
+        //             pict->data[1][y * pict->linesize[1] + x] = 128 + y + i * 2;
+        //             pict->data[2][y * pict->linesize[2] + x] = 64 + x + i * 5;
+        //         }
+        //     }
+        // } else {
+        //     for (y = 0; y < height; y++) {
+        //         for (x = 0; x < width; x++)
+        //         {
+        //             pict->data[0][y * pict->linesize[0] + x] = x + y + i * 3;
+        //         }
+        //     }
+            
+        //     /* Cb and Cr */
+        //     for (y = 0; y < height / 2; y++) {
+        //         for (x = 0; x < width / 2; x++) {
+        //             pict->data[1][y * pict->linesize[1] + x] = 100;
+        //             pict->data[2][y * pict->linesize[2] + x] = 100;
+        //         }
+        //     }
+        // }
+        
     }
 
     
@@ -393,7 +439,7 @@ private:
         }
         frame->format = c->pix_fmt;
         frame->width = c->width;
-        frame-> height = c->height;
+        frame->height = c->height;
     
         /* Allocate the encoded raw picture. */
         ret = avpicture_alloc(&dst_picture, c->pix_fmt, c->width, c->height);
@@ -403,8 +449,13 @@ private:
         }
 
         *((AVPicture *)frame) = dst_picture;
-    }
 
+        ret = avpicture_alloc(&rgb_picture, AV_PIX_FMT_RGBA, c->width, c->height);
+        if (ret < 0) {
+            printf("avpicture_alloc(&rgb_picture, AV_PIX_FMT_RGBA, c->width, c->height); failed: %s\n", av_err2str(ret));
+            exit(1);
+        }
+    }
     
     void close_video(AVFormatContext *oc, AVStream *st)
     {
@@ -428,7 +479,8 @@ private:
             /* convert samples from native format to destination codec format, using the resampler */
             if (swr_ctx) {
                 /* compute destination number of samples */
-                dst_nb_samples = av_rescale_rnd(swr_get_delay(swr_ctx, c->sample_rate) + src_nb_samples,
+                dst_nb_samples = av_rescale_rnd(
+                    swr_get_delay(swr_ctx, c->sample_rate) + src_nb_samples,
                     c->sample_rate, c->sample_rate, AV_ROUND_UP);
                 if (dst_nb_samples > max_dst_nb_samples) {
                     av_free(dst_samples_data[0]);
@@ -437,7 +489,8 @@ private:
                     if (ret < 0)
                         exit(1);
                     max_dst_nb_samples = dst_nb_samples;
-                    dst_samples_size = av_samples_get_buffer_size(NULL, c->channels, dst_nb_samples,
+                    dst_samples_size = av_samples_get_buffer_size(
+                        NULL, c->channels, dst_nb_samples,
                         c->sample_fmt, 0);
                 }
 
@@ -514,7 +567,7 @@ private:
 private:
     // video output
     AVFrame *frame;
-    AVPicture src_picture, dst_picture;
+    AVPicture rgb_picture, dst_picture;
     int frame_count;
 
     int video_is_eof, audio_is_eof;;
